@@ -16,6 +16,21 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## API configuration
+
+Copy `.env.example` to `.env.local` and set the backend URL:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+The frontend API client uses `NEXT_PUBLIC_API_BASE_URL` and sends
+authentication cookies with requests. Do not put database credentials or other
+server secrets in `NEXT_PUBLIC_*` variables.
+
+The project uses Webpack for local development and production builds because
+Turbopack native bindings are unavailable in the current Windows environment.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

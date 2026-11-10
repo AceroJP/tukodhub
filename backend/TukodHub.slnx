@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TukodHub.Api/TukodHub.Api.csproj" />
+  </Folder>
+</Solution>

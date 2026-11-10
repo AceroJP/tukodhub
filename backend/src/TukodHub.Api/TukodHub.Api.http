@@ -1,0 +1,6 @@
+@TukodHub.Api_HostAddress = http://localhost:5062
+
+GET {{TukodHub.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
