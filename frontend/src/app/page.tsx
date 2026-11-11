@@ -43,12 +43,12 @@ export default function Home() {
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <button className="rounded-full px-5 py-2.5 text-sm font-semibold text-[#17624d] transition hover:bg-white" type="button">
+          <a className="rounded-full px-5 py-2.5 text-sm font-semibold text-[#17624d] transition hover:bg-white" href="/owner/login">
             Sign in
-          </button>
-          <button className="rounded-full bg-[#17624d] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#17624d]/20 transition hover:bg-[#104c3c]" type="button">
+          </a>
+          <a className="rounded-full bg-[#17624d] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#17624d]/20 transition hover:bg-[#104c3c]" href="/auth/register">
             Start free
-          </button>
+          </a>
         </div>
 
         <button
@@ -69,7 +69,7 @@ export default function Home() {
           <div className="flex flex-col gap-3 text-sm font-semibold">
             <a href="#workflow" onClick={() => setMenuOpen(false)}>How it works</a>
             <a href="#built-for-work" onClick={() => setMenuOpen(false)}>Built for field work</a>
-            <button className="mt-2 rounded-full bg-[#17624d] px-4 py-3 text-white" type="button">Sign in</button>
+            <a className="mt-2 rounded-full bg-[#17624d] px-4 py-3 text-center text-white" href="/auth/login">Sign in</a>
           </div>
         </div>
       )}
@@ -87,10 +87,10 @@ export default function Home() {
             TukodHub brings inquiries, schedules, technicians, and payments into one calm, practical workspace for growing Filipino service teams.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <button className="rounded-full bg-[#17624d] px-7 py-4 text-sm font-bold text-white shadow-xl shadow-[#17624d]/20 transition hover:-translate-y-0.5 hover:bg-[#104c3c]" type="button">
+            <a className="rounded-full bg-[#17624d] px-7 py-4 text-center text-sm font-bold text-white shadow-xl shadow-[#17624d]/20 transition hover:-translate-y-0.5 hover:bg-[#104c3c]" href="/auth/register">
               Start organizing your work
               <span className="ml-3" aria-hidden="true">-&gt;</span>
-            </button>
+            </a>
             <a className="rounded-full border border-[#bcd3c7] bg-white/60 px-7 py-4 text-center text-sm font-bold text-[#17624d] transition hover:bg-white" href="#workflow">
               See how it works
             </a>
