@@ -496,7 +496,10 @@ public sealed class AuthService(
             .AsNoTracking()
             .Where(item => item.UserId == userId
                 && item.Status == MembershipStatus.Active
-                && item.Tenant.Status == TenantStatus.Active)
+                && item.Tenant.Status == TenantStatus.Active
+                && item.Role.Scope == RoleScope.Tenant
+                && item.Role.IsActive)
+            .OrderBy(item => item.Tenant.Name)
             .Select(item => new ActiveMembership(
                 item.Id,
                 item.Tenant.Id,
@@ -506,8 +509,6 @@ public sealed class AuthService(
                 item.Role.Name,
                 item.Role.Scope,
                 item.Role.IsActive))
-            .Where(item => item.RoleScope == RoleScope.Tenant && item.RoleIsActive)
-            .OrderBy(item => item.TenantName)
             .ToListAsync(cancellationToken);
     }
 
