@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using TukodHub.Api.Infrastructure;
 
 namespace TukodHub.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/platform")]
-[Authorize(Policy = "PlatformOwner")]
+[Authorize(AuthenticationSchemes = AuthSchemes.PlatformOwnerJwt, Policy = "PlatformOwner")]
 public sealed class PlatformController : ControllerBase
 {
     [HttpGet("me")]

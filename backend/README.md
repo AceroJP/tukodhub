@@ -56,6 +56,108 @@ Host resolution identifies the requested scope only. Authentication,
 membership, and tenant authorization must still succeed before tenant data is
 read or changed.
 
+## Tenant authentication flow for frontend integration
+
+Tenant user authentication stays separate from platform-owner Supabase JWT
+authentication. The tenant flow is cookie-based and host-bound.
+
+### Login endpoint
+
+`POST /api/v1/auth/login`
+
+Request fields:
+
+- `email`
+- `password`
+- optional `preferredTenantHost` (recommended for multi-tenant users)
+- optional `preferredTenantSlug`
+
+Response shape:
+
+```json
+{
+  "user": {
+    "userId": "guid",
+    "email": "user@example.com",
+    "displayName": "Display Name"
+  },
+  "activeTenant": {
+    "membershipId": "guid",
+    "tenantId": "guid",
+    "tenantSlug": "aceroaircon",
+    "tenantName": "Acero Aircon",
+    "roleId": "guid",
+    "roleName": "Owner"
+  },
+  "availableTenants": [
+    {
+      "membershipId": "guid",
+      "tenantId": "guid",
+      "tenantSlug": "aceroaircon",
+      "tenantName": "Acero Aircon",
+      "roleId": "guid",
+      "roleName": "Owner"
+    }
+  ],
+  "requiresTenantSelection": false
+}
+```
+
+Behavior by membership count:
+
+- **Multiple active memberships, no preferred tenant**: `requiresTenantSelection`
+  is `true`, `activeTenant` is `null`, no tenant session cookie is issued.
+- **Single active membership**: `requiresTenantSelection` is `false`,
+  `activeTenant` is returned, tenant session cookie is issued.
+- **No active memberships**: returns `401` with a generic auth error (no tenant
+  enumeration details).
+
+### Tenant selection and switching
+
+The backend does not trust a client-supplied `TenantId` as authorization.
+Tenant scope is always derived from request host + server-side membership
+validation.
+
+Recommended Next.js flow:
+
+1. Call login.
+2. If `requiresTenantSelection` is `true`, show `availableTenants`.
+3. On selection, navigate to the selected tenant hostname
+   (for example `https://aceroaircon.localhost:3001` in local dev, or
+   `https://aceroaircon.tukodhub.com` in deployed environments).
+4. Re-submit login with `preferredTenantHost` or call
+   `POST /api/v1/auth/tenant/switch` from an already-authenticated tenant
+   session.
+
+`POST /api/v1/auth/tenant/switch` requires:
+
+- tenant session cookie
+- CSRF token header (`X-CSRF-TOKEN`)
+- `targetTenantHost`
+
+Switching validates both the target hostname and active membership, revokes the
+current session, and issues a new session scoped to the selected tenant.
+
+### Error handling guidance
+
+- `401 Unauthorized`: authentication invalid, session invalid, or no active
+  membership for the target tenant.
+- `403 Forbidden`: host is outside recognized platform/tenant scope.
+- `400 Bad Request`: invalid switch input (for example malformed target host).
+
+Frontend should route users back to the login/tenant-selection screen on `401`
+and surface a host/configuration message on `403`.
+
+### Custom domains
+
+Current host resolution supports:
+
+- configured `PlatformHost`
+- `{tenantSlug}.{TenantBaseDomain}`
+- `{tenantSlug}.localhost` (development)
+
+Custom arbitrary tenant domains are not currently implemented.
+
 ## SaaS owner authentication
 
 The platform owner signs in through Supabase Auth at `/owner/login`. Configure

@@ -3,21 +3,12 @@
 import { FormEvent, useState } from "react";
 import Swal from "sweetalert2";
 import { useRouter } from "next/navigation";
-import { apiRequest } from "@/lib/api";
+import { authApi, type AuthenticatedAccount, type TenantMembershipSummary } from "@/lib/api";
 
 type AuthMode = "login" | "register";
 
 type AuthFormProps = {
   mode: AuthMode;
-};
-
-type AuthUser = {
-  userId: string;
-  email: string;
-  displayName: string;
-  tenantId: string;
-  tenantName: string;
-  role: string;
 };
 
 export default function AuthForm({ mode }: AuthFormProps) {
@@ -30,32 +21,41 @@ export default function AuthForm({ mode }: AuthFormProps) {
     setIsSubmitting(true);
 
     const formData = new FormData(event.currentTarget);
-    const payload = {
-      ...(isRegister ? {
-        businessName: String(formData.get("businessName") ?? ""),
-        ownerName: String(formData.get("ownerName") ?? ""),
-        phone: String(formData.get("phone") ?? ""),
-      } : {}),
-      email: String(formData.get("email") ?? ""),
-      password: String(formData.get("password") ?? ""),
-    };
+    const email = String(formData.get("email") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
 
     try {
-      const user = await apiRequest<AuthUser>(
-        `/api/v1/auth/${isRegister ? "register" : "login"}`,
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
-      );
+      const account = isRegister
+        ? await authApi.register({
+            businessName: String(formData.get("businessName") ?? "").trim(),
+            ownerName: String(formData.get("ownerName") ?? "").trim(),
+            phone: String(formData.get("phone") ?? "").trim() || undefined,
+            email,
+            password,
+          })
+        : await authApi.login({ email, password });
+
+      const finalAccount = await ensureTenantSelection(account, email, password);
+      const activeTenant = finalAccount.activeTenant;
+
+      if (!activeTenant) {
+        await Swal.fire({
+          icon: "warning",
+          title: "No active tenant selected",
+          text: "Please try again and choose an available business.",
+          confirmButtonColor: "#17624d",
+        });
+        return;
+      }
 
       await Swal.fire({
         icon: "success",
         title: isRegister ? "Workspace created" : "Welcome back",
-        text: `You are signed in as ${user.displayName}.`,
+        text: `Signed in as ${finalAccount.user.displayName} (${activeTenant.tenantName}).`,
         confirmButtonColor: "#17624d",
       });
-      router.push("/dashboard");
+
+      navigateToTenantDashboard(activeTenant);
     } catch (error) {
       await Swal.fire({
         icon: "error",
@@ -66,6 +66,28 @@ export default function AuthForm({ mode }: AuthFormProps) {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function ensureTenantSelection(
+    account: AuthenticatedAccount,
+    email: string,
+    password: string,
+  ): Promise<AuthenticatedAccount> {
+    if (!account.requiresTenantSelection) {
+      return account;
+    }
+
+    const selectedMembership = await promptTenantSelection(account.availableTenants);
+    if (!selectedMembership) {
+      throw new Error("Tenant selection was cancelled.");
+    }
+
+    const targetTenantHost = resolveTenantAppHost(selectedMembership.tenantSlug);
+    return authApi.login({
+      email,
+      password,
+      preferredTenantHost: targetTenantHost,
+    });
   }
 
   return (
@@ -95,6 +117,71 @@ export default function AuthForm({ mode }: AuthFormProps) {
       </button>
     </form>
   );
+
+  async function promptTenantSelection(
+    memberships: TenantMembershipSummary[],
+  ): Promise<TenantMembershipSummary | null> {
+    if (memberships.length === 0) {
+      return null;
+    }
+
+    if (memberships.length === 1) {
+      return memberships[0];
+    }
+
+    const options = Object.fromEntries(
+      memberships.map((membership) => [
+        membership.membershipId,
+        `${membership.tenantName} (${membership.roleName})`,
+      ]),
+    );
+
+    const result = await Swal.fire<string>({
+      title: "Select your business",
+      input: "select",
+      inputOptions: options,
+      inputPlaceholder: "Select a business",
+      confirmButtonText: "Continue",
+      showCancelButton: true,
+      confirmButtonColor: "#17624d",
+      cancelButtonColor: "#9ca3af",
+      inputValidator: (value) => (value ? undefined : "Please select a business."),
+    });
+
+    if (!result.isConfirmed || !result.value) {
+      return null;
+    }
+
+    return memberships.find((membership) => membership.membershipId === result.value) ?? null;
+  }
+
+  function navigateToTenantDashboard(activeTenant: TenantMembershipSummary): void {
+    const tenantHost = resolveTenantAppHost(activeTenant.tenantSlug);
+    const tenantUrl = `${window.location.protocol}//${tenantHost}/dashboard`;
+
+    if (tenantHost === window.location.host) {
+      router.push("/dashboard");
+      return;
+    }
+
+    window.open(tenantUrl, "_self");
+  }
+}
+
+function resolveTenantAppHost(tenantSlug: string): string {
+  const current = window.location;
+  const portSegment = current.port ? `:${current.port}` : "";
+
+  if (current.hostname === "localhost" || current.hostname.endsWith(".localhost")) {
+    return `${tenantSlug}.localhost${portSegment}`;
+  }
+
+  const hostParts = current.hostname.split(".");
+  const baseDomain = hostParts.length >= 3
+    ? hostParts.slice(1).join(".")
+    : current.hostname;
+
+  return `${tenantSlug}.${baseDomain}${portSegment}`;
 }
 
 function Field({
@@ -124,3 +211,5 @@ function Field({
     </label>
   );
 }
+
+

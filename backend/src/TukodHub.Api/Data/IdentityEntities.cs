@@ -42,7 +42,7 @@ public sealed class Tenant
     public ICollection<Session> Sessions { get; } = [];
 }
 
-public sealed class BusinessProfile
+public sealed class BusinessProfile : ITenantOwnedEntity
 {
     public Guid TenantId { get; set; }
     public required string LegalName { get; set; }
@@ -101,7 +101,7 @@ public sealed class RolePermission
     public Permission Permission { get; set; } = null!;
 }
 
-public sealed class Membership
+public sealed class Membership : ITenantOwnedEntity
 {
     public Guid Id { get; set; }
     public Guid TenantId { get; set; }
@@ -115,7 +115,7 @@ public sealed class Membership
     public Role Role { get; set; } = null!;
 }
 
-public sealed class Session
+public sealed class Session : ITenantOwnedEntity
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }

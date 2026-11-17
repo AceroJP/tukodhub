@@ -7,7 +7,7 @@ public enum HostScope
     Unknown
 }
 
-public sealed record TenantHostContext(HostScope Scope, string? TenantSlug, string Host);
+public sealed record TenantHostContext(HostScope Scope, string? TenantSlug, string Host, Guid? TenantId);
 
 public interface ITenantHostResolver
 {
@@ -24,7 +24,7 @@ public sealed class TenantHostResolver(IConfiguration configuration) : ITenantHo
 
         if (normalizedHost == platformHost || normalizedHost == "localhost")
         {
-            return new TenantHostContext(HostScope.Platform, null, normalizedHost);
+            return new TenantHostContext(HostScope.Platform, null, normalizedHost, null);
         }
 
         if (normalizedHost.EndsWith($".{baseDomain}", StringComparison.Ordinal))
@@ -32,7 +32,7 @@ public sealed class TenantHostResolver(IConfiguration configuration) : ITenantHo
             var subdomain = normalizedHost[..^(baseDomain.Length + 1)];
             if (IsValidTenantSlug(subdomain))
             {
-                return new TenantHostContext(HostScope.Tenant, subdomain, normalizedHost);
+                return new TenantHostContext(HostScope.Tenant, subdomain, normalizedHost, null);
             }
         }
 
@@ -41,11 +41,11 @@ public sealed class TenantHostResolver(IConfiguration configuration) : ITenantHo
             var subdomain = normalizedHost[..^".localhost".Length];
             if (IsValidTenantSlug(subdomain))
             {
-                return new TenantHostContext(HostScope.Tenant, subdomain, normalizedHost);
+                return new TenantHostContext(HostScope.Tenant, subdomain, normalizedHost, null);
             }
         }
 
-        return new TenantHostContext(HostScope.Unknown, null, normalizedHost);
+        return new TenantHostContext(HostScope.Unknown, null, normalizedHost, null);
     }
 
     private static string Normalize(string host) => host.Split(':')[0].Trim().ToLowerInvariant();

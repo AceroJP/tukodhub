@@ -1,9 +1,24 @@
 using Microsoft.EntityFrameworkCore;
+using TukodHub.Api.Infrastructure;
 
 namespace TukodHub.Api.Data;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public interface ITenantOwnedEntity
 {
+    Guid TenantId { get; }
+}
+
+public sealed class AppDbContext(
+    DbContextOptions<AppDbContext> options,
+    ITenantContextAccessor? tenantContextAccessor = null) : DbContext(options)
+{
+    private readonly ITenantContextAccessor tenantContextAccessor = tenantContextAccessor ?? new TenantContextAccessor();
+
+    private Guid? CurrentTenantId =>
+        this.tenantContextAccessor.Current.Scope == HostScope.Tenant
+            ? this.tenantContextAccessor.Current.TenantId
+            : null;
+
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<BusinessProfile> BusinessProfiles => Set<BusinessProfile>();
     public DbSet<User> Users => Set<User>();
@@ -28,6 +43,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(20);
             entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
             entity.HasIndex(item => item.Slug).IsUnique();
+            entity.HasQueryFilter(item => CurrentTenantId == null || item.Id == CurrentTenantId);
             entity.HasOne(item => item.BusinessProfile)
                 .WithOne(item => item.Tenant)
                 .HasForeignKey<BusinessProfile>(item => item.TenantId)
@@ -46,6 +62,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(item => item.Currency).HasMaxLength(3).IsRequired();
             entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(item => item.UpdatedAt).HasDefaultValueSql("now()");
+            entity.HasQueryFilter(item => CurrentTenantId == null || item.TenantId == CurrentTenantId);
         });
 
         modelBuilder.Entity<User>(entity =>
@@ -101,6 +118,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(item => item.Status).HasConversion<string>().HasMaxLength(20);
             entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
             entity.HasIndex(item => new { item.TenantId, item.UserId }).IsUnique();
+            entity.HasQueryFilter(item => CurrentTenantId == null || item.TenantId == CurrentTenantId);
             entity.HasOne(item => item.Tenant).WithMany(item => item.Memberships)
                 .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(item => item.User).WithMany(item => item.Memberships)
@@ -118,10 +136,62 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
             entity.HasIndex(item => item.TokenHash).IsUnique();
             entity.HasIndex(item => new { item.TenantId, item.ExpiresAt });
+            entity.HasQueryFilter(item => CurrentTenantId == null || item.TenantId == CurrentTenantId);
             entity.HasOne(item => item.User).WithMany(item => item.Sessions)
                 .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(item => item.Tenant).WithMany(item => item.Sessions)
                 .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ValidateTenantOwnership();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ValidateTenantOwnership();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ValidateTenantOwnership()
+    {
+        if (CurrentTenantId is not { } tenantId)
+        {
+            return;
+        }
+
+        foreach (var entry in ChangeTracker.Entries<ITenantOwnedEntity>())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+            {
+                continue;
+            }
+
+            if (entry.Entity.TenantId != tenantId)
+            {
+                throw new UnauthorizedAccessException("The request attempted to access data outside the active tenant scope.");
+            }
+
+            if (entry.State == EntityState.Modified && entry.Property(nameof(ITenantOwnedEntity.TenantId)).IsModified)
+            {
+                throw new UnauthorizedAccessException("Tenant reassignment is not allowed.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<Tenant>())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+            {
+                continue;
+            }
+
+            if (entry.Entity.Id != tenantId)
+            {
+                throw new UnauthorizedAccessException("Cross-tenant updates are not allowed.");
+            }
+        }
     }
 }
