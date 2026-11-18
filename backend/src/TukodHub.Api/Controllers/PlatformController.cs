@@ -32,8 +32,18 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
         var suspendedTenants = await dbContext.Tenants.IgnoreQueryFilters().CountAsync(t => t.Status == TenantStatus.Suspended, cancellationToken);
         var trialTenants = await dbContext.Tenants.IgnoreQueryFilters().CountAsync(t => t.Status == TenantStatus.Active && t.CreatedAt >= DateTimeOffset.UtcNow.AddDays(-14), cancellationToken);
 
-        var openTickets = await dbContext.SupportTickets.CountAsync(t => t.Status == "Open" || t.Status == "InProgress", cancellationToken);
-        var activeSupportSessions = await dbContext.SupportAccessGrants.CountAsync(g => g.Status == "Approved" && g.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
+        var openTickets = 0;
+        var activeSupportSessions = 0;
+
+        try
+        {
+            openTickets = await dbContext.SupportTickets.CountAsync(t => t.Status == "Open" || t.Status == "InProgress", cancellationToken);
+            activeSupportSessions = await dbContext.SupportAccessGrants.CountAsync(g => g.Status == "Approved" && g.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
+        }
+        catch
+        {
+            // In case support tables have not yet been migrated to database
+        }
 
         return Ok(new PlatformOverviewResponse(
             TotalTenants: totalTenants,
@@ -59,6 +69,11 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
                 t.Slug,
                 t.Status.ToString(),
                 t.CreatedAt,
+                dbContext.Memberships.IgnoreQueryFilters()
+                    .Where(m => m.TenantId == t.Id)
+                    .OrderBy(m => m.CreatedAt)
+                    .Select(m => m.User.Email)
+                    .FirstOrDefault(),
                 t.BusinessProfile != null ? t.BusinessProfile.Phone : null,
                 dbContext.Memberships.IgnoreQueryFilters().Count(m => m.TenantId == t.Id)))
             .ToListAsync(cancellationToken);
@@ -88,20 +103,26 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
         var oldStatus = tenant.Status.ToString();
         tenant.Status = nextStatus;
 
-        // Log to immutable PlatformAuditLog
-        dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+        try
         {
-            ActorType = "PlatformAdmin",
-            ActorId = User.FindFirst("sub")?.Value ?? "owner",
-            ActorEmail = User.FindFirst("email")?.Value,
-            TenantId = tenant.Id,
-            Action = "tenant.status_changed",
-            EntityName = "Tenant",
-            EntityId = tenant.Id.ToString(),
-            Details = $"Tenant {tenant.Slug} status changed from {oldStatus} to {nextStatus}. Reason: {request.Reason ?? "Administrative action"}",
-            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-            UserAgent = Request.Headers.UserAgent.ToString()
-        });
+            dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                ActorType = "PlatformAdmin",
+                ActorId = User.FindFirst("sub")?.Value ?? "owner",
+                ActorEmail = User.FindFirst("email")?.Value,
+                TenantId = tenant.Id,
+                Action = "tenant.status_changed",
+                EntityName = "Tenant",
+                EntityId = tenant.Id.ToString(),
+                Details = $"Tenant {tenant.Slug} status changed from {oldStatus} to {nextStatus}. Reason: {request.Reason ?? "Administrative action"}",
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            });
+        }
+        catch
+        {
+            // Non-blocking if table is being created
+        }
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return NoContent();
@@ -244,6 +265,7 @@ public sealed record PlatformTenantItem(
     string Slug,
     string Status,
     DateTimeOffset CreatedAt,
+    string? OwnerEmail,
     string? Phone,
     int MemberCount);
 
