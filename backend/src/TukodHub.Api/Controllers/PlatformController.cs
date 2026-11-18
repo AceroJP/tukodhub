@@ -246,6 +246,124 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
 
         return Ok(tickets);
     }
+
+    [HttpGet("support/tickets/{id:guid}")]
+    [ProducesResponseType(typeof(SupportTicketDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SupportTicketDetailResponse>> GetTicketDetail(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await dbContext.SupportTickets
+            .Include(t => t.Tenant)
+            .Include(t => t.Messages.OrderBy(m => m.CreatedAt))
+            .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+
+        if (ticket is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(new SupportTicketDetailResponse(
+            ticket.Id,
+            ticket.TicketNumber,
+            ticket.Tenant != null ? ticket.Tenant.Name : "Unknown Tenant",
+            ticket.Tenant != null ? ticket.Tenant.Slug : string.Empty,
+            ticket.Subject,
+            ticket.Category,
+            ticket.Priority,
+            ticket.Status,
+            ticket.CreatedAt,
+            ticket.Messages.Select(m => new SupportMessageResponse(
+                m.Id,
+                m.SenderType,
+                m.SenderName,
+                m.Message,
+                m.AttachmentsJson,
+                m.CreatedAt)).ToList()));
+    }
+
+    [HttpPost("support/tickets/{id:guid}/messages")]
+    [ProducesResponseType(typeof(SupportMessageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SupportMessageResponse>> AddTicketMessage(
+        Guid id,
+        [FromBody] AddSupportMessageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var ticket = await dbContext.SupportTickets.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        if (ticket is null)
+        {
+            return NotFound();
+        }
+
+        var message = new SupportTicketMessage
+        {
+            TicketId = ticket.Id,
+            SenderType = "PlatformAdmin",
+            SenderId = User.FindFirst("sub")?.Value ?? "owner",
+            SenderName = User.FindFirst("email")?.Value ?? "Platform Super Admin",
+            Message = request.Message,
+            AttachmentsJson = request.AttachmentsJson,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        dbContext.SupportTicketMessages.Add(message);
+        ticket.Status = "WaitingOnTenant";
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new SupportMessageResponse(
+            message.Id,
+            message.SenderType,
+            message.SenderName,
+            message.Message,
+            message.AttachmentsJson,
+            message.CreatedAt));
+    }
+
+    [HttpPost("support/handshake")]
+    [ProducesResponseType(typeof(SupportAccessGrantResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SupportAccessGrantResponse>> RequestSupportHandshake(
+        [FromBody] RequestSupportHandshakeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var grant = new SupportAccessGrant
+        {
+            TenantId = request.TenantId,
+            RequestedByAdminId = User.FindFirst("sub")?.Value ?? "owner",
+            Reason = request.Reason,
+            DurationMinutes = request.DurationMinutes > 0 ? request.DurationMinutes : 60,
+            Status = "Requested",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        dbContext.SupportAccessGrants.Add(grant);
+
+        dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+        {
+            ActorType = "PlatformAdmin",
+            ActorId = User.FindFirst("sub")?.Value ?? "owner",
+            ActorEmail = User.FindFirst("email")?.Value,
+            TenantId = request.TenantId,
+            Action = "support_handshake.requested",
+            EntityName = "SupportAccessGrant",
+            EntityId = grant.Id.ToString(),
+            Details = $"Requested support session ({grant.DurationMinutes}m) for reason: {request.Reason}",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Ok(new SupportAccessGrantResponse(
+            grant.Id,
+            grant.TenantId,
+            grant.Status,
+            grant.Reason,
+            grant.DurationMinutes,
+            grant.CreatedAt));
+    }
 }
 
 public sealed record PlatformOwnerResponse(string UserId, string? Email);
@@ -299,3 +417,38 @@ public sealed record SupportTicketSummaryResponse(
     string Status,
     DateTimeOffset CreatedAt,
     int MessageCount);
+
+public sealed record SupportMessageResponse(
+    Guid Id,
+    string SenderType,
+    string SenderName,
+    string Message,
+    string? AttachmentsJson,
+    DateTimeOffset CreatedAt);
+
+public sealed record SupportTicketDetailResponse(
+    Guid Id,
+    string TicketNumber,
+    string TenantName,
+    string TenantSlug,
+    string Subject,
+    string Category,
+    string Priority,
+    string Status,
+    DateTimeOffset CreatedAt,
+    List<SupportMessageResponse> Messages);
+
+public sealed record AddSupportMessageRequest(string Message, string? AttachmentsJson);
+
+public sealed record RequestSupportHandshakeRequest(
+    Guid TenantId,
+    string Reason,
+    int DurationMinutes);
+
+public sealed record SupportAccessGrantResponse(
+    Guid Id,
+    Guid TenantId,
+    string Status,
+    string Reason,
+    int DurationMinutes,
+    DateTimeOffset CreatedAt);
