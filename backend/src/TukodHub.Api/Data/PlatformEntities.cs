@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace TukodHub.Api.Data;
 
 public sealed class PlatformSetting
