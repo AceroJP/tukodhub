@@ -69,3 +69,16 @@ public sealed class SupportAccessGrant
 
     public Tenant? Tenant { get; set; }
 }
+
+public sealed class PlatformLandingVersion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public int VersionNumber { get; set; }
+    public required string PublishedBy { get; set; }
+    public string? ChangeSummary { get; set; }
+    public required string PayloadJson { get; set; }
+    public string RevalidationStatus { get; set; } = "Pending"; // "Success", "Pending", "Failed"
+    public DateTimeOffset? RevalidatedAt { get; set; }
+    public int RevalidationAttempts { get; set; } = 0;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}

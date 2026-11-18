@@ -32,6 +32,7 @@ public sealed class AppDbContext(
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
     public DbSet<SupportTicketMessage> SupportTicketMessages => Set<SupportTicketMessage>();
     public DbSet<SupportAccessGrant> SupportAccessGrants => Set<SupportAccessGrant>();
+    public DbSet<PlatformLandingVersion> PlatformLandingVersions => Set<PlatformLandingVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -214,6 +215,20 @@ public sealed class AppDbContext(
             entity.HasIndex(item => item.TenantId);
             entity.HasOne(item => item.Tenant).WithMany()
                 .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PlatformLandingVersion>(entity =>
+        {
+            entity.ToTable("platform_landing_versions");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(item => item.VersionNumber).IsRequired();
+            entity.Property(item => item.PublishedBy).HasMaxLength(320).IsRequired();
+            entity.Property(item => item.PayloadJson).IsRequired();
+            entity.Property(item => item.RevalidationStatus).HasMaxLength(50).IsRequired();
+            entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasIndex(item => item.VersionNumber).IsUnique();
+            entity.HasIndex(item => item.CreatedAt);
         });
     }
 

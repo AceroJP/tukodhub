@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +11,12 @@ namespace TukodHub.Api.Controllers;
 [ApiController]
 [Route("api/v1/platform")]
 [Authorize(AuthenticationSchemes = AuthSchemes.PlatformOwnerJwt, Policy = "PlatformOwner")]
-public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
+public sealed class PlatformController(
+    AppDbContext dbContext,
+    IConfiguration configuration,
+    IHttpClientFactory httpClientFactory,
+    IWebHostEnvironment environment,
+    IServiceScopeFactory scopeFactory) : ControllerBase
 {
     [HttpGet("me")]
     [ProducesResponseType(typeof(PlatformOwnerResponse), StatusCodes.Status200OK)]
@@ -128,59 +134,216 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
         return NoContent();
     }
 
+    // ── Landing Page Builder Endpoints (Draft, Publish, Versioning & Media) ─────
+
     [HttpGet("landing-page")]
+    [HttpGet("landing-page/draft")]
     [ProducesResponseType(typeof(PlatformSettingResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PlatformSettingResponse>> GetLandingPageConfig(CancellationToken cancellationToken)
+    public async Task<ActionResult<PlatformSettingResponse>> GetLandingPageDraft(CancellationToken cancellationToken)
     {
-        var setting = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
-        if (setting is null)
+        // 1. Try to load active draft
+        var draft = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_draft", cancellationToken);
+        if (draft is not null && !string.IsNullOrWhiteSpace(draft.ValueJson))
         {
-            return Ok(new PlatformSettingResponse("landing_page_config", null, null));
+            return Ok(new PlatformSettingResponse(draft.Key, draft.ValueJson, draft.UpdatedAt));
         }
 
-        return Ok(new PlatformSettingResponse(setting.Key, setting.ValueJson, setting.UpdatedAt));
+        // 2. Fall back to current published version
+        var published = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_published", cancellationToken);
+        if (published is not null && !string.IsNullOrWhiteSpace(published.ValueJson))
+        {
+            return Ok(new PlatformSettingResponse(published.Key, published.ValueJson, published.UpdatedAt));
+        }
+
+        // 3. Fall back to legacy config
+        var legacy = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
+        if (legacy is not null && !string.IsNullOrWhiteSpace(legacy.ValueJson))
+        {
+            return Ok(new PlatformSettingResponse(legacy.Key, legacy.ValueJson, legacy.UpdatedAt));
+        }
+
+        return Ok(new PlatformSettingResponse("landing_page_draft", null, null));
     }
 
     [HttpPut("landing-page")]
+    [HttpPut("landing-page/draft")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> SaveLandingPageConfig(
+    public async Task<IActionResult> SaveLandingPageDraft(
         [FromBody] SaveLandingPageConfigRequest request,
         CancellationToken cancellationToken)
     {
-        var setting = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
-        if (setting is null)
+        var draft = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_draft", cancellationToken);
+        if (draft is null)
         {
-            setting = new PlatformSetting
+            draft = new PlatformSetting
             {
-                Key = "landing_page_config",
+                Key = "landing_page_draft",
                 ValueJson = request.ConfigJson,
                 UpdatedAt = DateTimeOffset.UtcNow,
                 UpdatedBy = User.FindFirst("email")?.Value ?? "owner"
             };
-            dbContext.PlatformSettings.Add(setting);
+            dbContext.PlatformSettings.Add(draft);
         }
         else
         {
-            setting.ValueJson = request.ConfigJson;
-            setting.UpdatedAt = DateTimeOffset.UtcNow;
-            setting.UpdatedBy = User.FindFirst("email")?.Value ?? "owner";
+            draft.ValueJson = request.ConfigJson;
+            draft.UpdatedAt = DateTimeOffset.UtcNow;
+            draft.UpdatedBy = User.FindFirst("email")?.Value ?? "owner";
         }
-
-        dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
-        {
-            ActorType = "PlatformAdmin",
-            ActorId = User.FindFirst("sub")?.Value ?? "owner",
-            ActorEmail = User.FindFirst("email")?.Value,
-            Action = "landing_page.published",
-            EntityName = "PlatformSetting",
-            EntityId = "landing_page_config",
-            Details = "Main public marketing landing page configuration published.",
-            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-            UserAgent = Request.Headers.UserAgent.ToString()
-        });
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return NoContent();
+    }
+
+    [HttpPost("landing-page/publish")]
+    [ProducesResponseType(typeof(PublishLandingPageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<PublishLandingPageResponse>> PublishLandingPage(
+        [FromBody] PublishLandingPageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var adminEmail = User.FindFirst("email")?.Value ?? "owner";
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Calculate next sequential version number
+            var latestVersion = await dbContext.PlatformLandingVersions
+                .MaxAsync(v => (int?)v.VersionNumber, cancellationToken) ?? 0;
+            var nextVersion = latestVersion + 1;
+
+            // 1. Immutable version snapshot
+            var versionRecord = new PlatformLandingVersion
+            {
+                VersionNumber = nextVersion,
+                PublishedBy = adminEmail,
+                ChangeSummary = string.IsNullOrWhiteSpace(request.ChangeSummary) ? "Published live website release" : request.ChangeSummary.Trim(),
+                PayloadJson = request.DocumentJson,
+                RevalidationStatus = "Pending",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            dbContext.PlatformLandingVersions.Add(versionRecord);
+
+            // 2. Active published setting in platform_settings
+            var setting = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_published", cancellationToken);
+            if (setting is null)
+            {
+                setting = new PlatformSetting
+                {
+                    Key = "landing_page_published",
+                    ValueJson = request.DocumentJson,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    UpdatedBy = adminEmail
+                };
+                dbContext.PlatformSettings.Add(setting);
+            }
+            else
+            {
+                setting.ValueJson = request.DocumentJson;
+                setting.UpdatedAt = DateTimeOffset.UtcNow;
+                setting.UpdatedBy = adminEmail;
+            }
+
+            // 3. Keep legacy key in sync for backward compatibility
+            var legacy = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
+            if (legacy is null)
+            {
+                legacy = new PlatformSetting
+                {
+                    Key = "landing_page_config",
+                    ValueJson = request.DocumentJson,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    UpdatedBy = adminEmail
+                };
+                dbContext.PlatformSettings.Add(legacy);
+            }
+            else
+            {
+                legacy.ValueJson = request.DocumentJson;
+                legacy.UpdatedAt = DateTimeOffset.UtcNow;
+                legacy.UpdatedBy = adminEmail;
+            }
+
+            // 4. Audit Log
+            dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+            {
+                ActorType = "PlatformAdmin",
+                ActorId = User.FindFirst("sub")?.Value ?? "owner",
+                ActorEmail = adminEmail,
+                Action = "landing_page.published",
+                EntityName = "PlatformLandingVersion",
+                EntityId = nextVersion.ToString(),
+                Details = $"Published Version #{nextVersion}: {versionRecord.ChangeSummary}",
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            });
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            // Trigger asynchronous Vercel / Next.js cache revalidation with retries
+            _ = Task.Run(async () =>
+            {
+                await TriggerCacheRevalidationAsync(nextVersion, versionRecord.Id);
+            });
+
+            return Ok(new PublishLandingPageResponse(nextVersion, versionRecord.CreatedAt, versionRecord.RevalidationStatus));
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("version_number") == true || ex.Message.Contains("idx_platform_landing_versions_version"))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Conflict(new ProblemDetails
+            {
+                Title = "Concurrent publish conflict",
+                Detail = "Another administrator published a version simultaneously. Please reload your draft to ensure you are editing the latest version.",
+                Status = StatusCodes.Status409Conflict
+            });
+        }
+    }
+
+    [HttpGet("landing-page/versions")]
+    [ProducesResponseType(typeof(List<PlatformLandingVersionSummary>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<PlatformLandingVersionSummary>>> GetLandingPageVersions(CancellationToken cancellationToken)
+    {
+        var versions = await dbContext.PlatformLandingVersions
+            .OrderByDescending(v => v.VersionNumber)
+            .Take(30)
+            .Select(v => new PlatformLandingVersionSummary(
+                v.Id,
+                v.VersionNumber,
+                v.PublishedBy,
+                v.ChangeSummary,
+                v.RevalidationStatus,
+                v.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        return Ok(versions);
+    }
+
+    [HttpPost("landing-page/versions/{versionNumber:int}/restore")]
+    [ProducesResponseType(typeof(PublishLandingPageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PublishLandingPageResponse>> RestoreLandingPageVersion(
+        int versionNumber,
+        CancellationToken cancellationToken)
+    {
+        var targetSnapshot = await dbContext.PlatformLandingVersions
+            .FirstOrDefaultAsync(v => v.VersionNumber == versionNumber, cancellationToken);
+
+        if (targetSnapshot is null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Title = "Version snapshot not found",
+                Detail = $"Version #{versionNumber} does not exist in history.",
+                Status = StatusCodes.Status404NotFound
+            });
+        }
+
+        // Delegate to atomic publish to create a clean new forward version
+        return await PublishLandingPage(
+            new PublishLandingPageRequest(targetSnapshot.PayloadJson, $"Restored from historical Version #{versionNumber}"),
+            cancellationToken);
     }
 
     [HttpGet("landing-page/public")]
@@ -188,13 +351,81 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
     [ProducesResponseType(typeof(PlatformSettingResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PlatformSettingResponse>> GetPublicLandingPageConfig(CancellationToken cancellationToken)
     {
-        var setting = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
-        if (setting is null)
+        // 1. Prioritize active published version
+        var setting = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_published", cancellationToken);
+        if (setting is not null && !string.IsNullOrWhiteSpace(setting.ValueJson))
         {
-            return Ok(new PlatformSettingResponse("landing_page_config", null, null));
+            return Ok(new PlatformSettingResponse(setting.Key, setting.ValueJson, setting.UpdatedAt));
         }
 
-        return Ok(new PlatformSettingResponse(setting.Key, setting.ValueJson, setting.UpdatedAt));
+        // 2. Fall back to legacy config
+        var legacy = await dbContext.PlatformSettings.FirstOrDefaultAsync(s => s.Key == "landing_page_config", cancellationToken);
+        if (legacy is not null && !string.IsNullOrWhiteSpace(legacy.ValueJson))
+        {
+            return Ok(new PlatformSettingResponse(legacy.Key, legacy.ValueJson, legacy.UpdatedAt));
+        }
+
+        return Ok(new PlatformSettingResponse("landing_page_published", null, null));
+    }
+
+    [HttpPost("media/upload")]
+    [ProducesResponseType(typeof(MediaUploadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [RequestSizeLimit(15 * 1024 * 1024)] // 15MB max
+    public async Task<ActionResult<MediaUploadResponse>> UploadMedia(
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new ProblemDetails { Title = "Invalid upload", Detail = "No file was provided.", Status = StatusCodes.Status400BadRequest });
+        }
+
+        if (file.Length > 15 * 1024 * 1024)
+        {
+            return BadRequest(new ProblemDetails { Title = "File too large", Detail = "File exceeds the 15 MB limit.", Status = StatusCodes.Status400BadRequest });
+        }
+
+        // Binary signature & security validation
+        if (!ValidateImageSignature(file, out var detectedMime, out var validationError))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Security verification failed",
+                Detail = validationError ?? "File rejected by media security validation.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
+        var webRoot = environment.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var uploadDir = Path.Combine(webRoot, "media", "landing");
+        Directory.CreateDirectory(uploadDir);
+
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = detectedMime switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                "image/webp" => ".webp",
+                "image/svg+xml" => ".svg",
+                _ => ".bin"
+            };
+        }
+
+        var uniqueFileName = $"{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}_{Guid.NewGuid():N}{extension}";
+        var destinationPath = Path.Combine(uploadDir, uniqueFileName);
+
+        await using (var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await file.CopyToAsync(fileStream, cancellationToken);
+        }
+
+        var assetId = Guid.NewGuid();
+        var publicUrl = $"/media/landing/{uniqueFileName}";
+
+        return Ok(new MediaUploadResponse(assetId, publicUrl, file.FileName, file.Length));
     }
 
     [HttpGet("audit-logs")]
@@ -497,6 +728,137 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
             grant.DurationMinutes,
             grant.CreatedAt));
     }
+
+    private async Task TriggerCacheRevalidationAsync(int versionNumber, Guid versionId)
+    {
+        var frontendUrl = configuration["FrontendUrl"] ?? "http://localhost:3000";
+        var secret = configuration["InternalRevalidationSecret"] ?? "tukodhub-internal-secret-2026";
+        var targetUri = $"{frontendUrl.TrimEnd('/')}/api/revalidate-landing";
+
+        var client = httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(5);
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, targetUri);
+                request.Headers.Add("x-revalidate-secret", secret);
+                request.Content = JsonContent.Create(new { version = versionNumber });
+
+                var response = await client.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    using var scope = scopeFactory.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var v = await db.PlatformLandingVersions.FindAsync(versionId);
+                    if (v is not null)
+                    {
+                        v.RevalidationStatus = "Success";
+                        v.RevalidatedAt = DateTimeOffset.UtcNow;
+                        v.RevalidationAttempts = attempt;
+                        await db.SaveChangesAsync();
+                    }
+                    return;
+                }
+            }
+            catch
+            {
+                if (attempt < 3)
+                {
+                    await Task.Delay(attempt * 250);
+                }
+            }
+        }
+
+        // If all 3 attempts failed, record status
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var v = await db.PlatformLandingVersions.FindAsync(versionId);
+            if (v is not null)
+            {
+                v.RevalidationStatus = "Failed";
+                v.RevalidationAttempts = 3;
+                await db.SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            // Background logging fallback
+        }
+    }
+
+    private static bool ValidateImageSignature(IFormFile file, out string detectedMime, out string? errorMessage)
+    {
+        errorMessage = null;
+        detectedMime = string.Empty;
+
+        using var stream = file.OpenReadStream();
+        var header = new byte[16];
+        var bytesRead = stream.Read(header, 0, header.Length);
+        if (bytesRead < 4)
+        {
+            errorMessage = "File is empty or truncated.";
+            return false;
+        }
+
+        // PNG: 89 50 4E 47
+        if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+        {
+            detectedMime = "image/png";
+            return true;
+        }
+
+        // JPEG: FF D8 FF
+        if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+        {
+            detectedMime = "image/jpeg";
+            return true;
+        }
+
+        // WebP: RIFF ... WEBP (52 49 46 46 .... 57 45 42 50)
+        if (header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&
+            bytesRead >= 12 && header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50)
+        {
+            detectedMime = "image/webp";
+            return true;
+        }
+
+        // SVG: XML format check & strict XSS sanitization
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (extension == ".svg")
+        {
+            stream.Position = 0;
+            using var reader = new StreamReader(stream);
+            var content = reader.ReadToEnd();
+
+            var lower = content.ToLowerInvariant();
+            if (lower.Contains("<script") ||
+                lower.Contains("javascript:") ||
+                lower.Contains("<foreignobject") ||
+                lower.Contains("onload=") ||
+                lower.Contains("onerror=") ||
+                lower.Contains("onclick="))
+            {
+                errorMessage = "Malicious or insecure executable content detected in SVG file.";
+                return false;
+            }
+
+            if (!lower.Contains("<svg"))
+            {
+                errorMessage = "File does not contain valid SVG markup.";
+                return false;
+            }
+
+            detectedMime = "image/svg+xml";
+            return true;
+        }
+
+        errorMessage = "Unsupported file format. Only PNG, JPEG, WebP, and sanitized SVG are permitted.";
+        return false;
+    }
 }
 
 public sealed record PlatformOwnerResponse(string UserId, string? Email);
@@ -587,3 +949,24 @@ public sealed record SupportAccessGrantResponse(
     string Reason,
     int DurationMinutes,
     DateTimeOffset CreatedAt);
+
+public sealed record PublishLandingPageRequest(string DocumentJson, string? ChangeSummary);
+
+public sealed record PublishLandingPageResponse(
+    int VersionNumber,
+    DateTimeOffset PublishedAt,
+    string RevalidationStatus);
+
+public sealed record PlatformLandingVersionSummary(
+    Guid Id,
+    int VersionNumber,
+    string PublishedBy,
+    string? ChangeSummary,
+    string RevalidationStatus,
+    DateTimeOffset CreatedAt);
+
+public sealed record MediaUploadResponse(
+    Guid AssetId,
+    string Url,
+    string FileName,
+    long Size);

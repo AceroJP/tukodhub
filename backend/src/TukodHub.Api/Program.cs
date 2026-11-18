@@ -31,6 +31,7 @@ ValidateConfiguration(
     platformOwnerJwtIssuer);
 
 builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails(options =>
 {
@@ -259,6 +260,7 @@ else
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseMiddleware<TenantHostMiddleware>();
 app.UseCors("Frontend");
