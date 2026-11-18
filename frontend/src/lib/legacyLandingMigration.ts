@@ -186,7 +186,7 @@ export function migrateLegacyLandingConfig(input: unknown): WebsitePageDocument 
   return {
     schemaVersion: 2,
     version: 1,
-    updatedAt: new Date().toISOString(),
+    updatedAt: (legacy as any)?.updatedAt || "2026-01-01T00:00:00.000Z",
     globals: {
       brandName: "TukodHub",
       primaryColor: "#17624d",
