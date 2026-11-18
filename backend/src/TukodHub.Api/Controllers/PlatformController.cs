@@ -227,6 +227,90 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
     [ProducesResponseType(typeof(List<SupportTicketSummaryResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<List<SupportTicketSummaryResponse>>> GetSupportTickets(CancellationToken cancellationToken)
     {
+        // If table is empty, seed demo tickets linked to an existing tenant
+        if (!await dbContext.SupportTickets.AnyAsync(cancellationToken))
+        {
+            var tenant = await dbContext.Tenants.IgnoreQueryFilters().FirstOrDefaultAsync(cancellationToken);
+            if (tenant is not null)
+            {
+                var seedTicket1 = new SupportTicket
+                {
+                    TicketNumber = "TK-108",
+                    TenantId = tenant.Id,
+                    Subject = "Technician mobile app GPS proof not saving on branch 2",
+                    Category = "Technical Bug",
+                    Priority = "High",
+                    Status = "Open",
+                    CreatedAt = DateTimeOffset.UtcNow.AddHours(-3),
+                    Messages = new List<SupportTicketMessage>
+                    {
+                        new()
+                        {
+                            SenderType = "TenantOwner",
+                            SenderId = "tenant-owner",
+                            SenderName = "Tenant Owner",
+                            Message = "Hi Super Admin, our field technicians report that when they complete a job and upload proof photos, the GPS location tag errors out with code #503. I've attached a screenshot and a short video clip showing the error.",
+                            AttachmentsJson = "[{\"name\":\"gps_error_screenshot.png\",\"type\":\"image\",\"size\":\"1.2 MB\"},{\"name\":\"technician_screen_recording.mp4\",\"type\":\"video\",\"size\":\"14.8 MB\"}]",
+                            CreatedAt = DateTimeOffset.UtcNow.AddHours(-3)
+                        },
+                        new()
+                        {
+                            SenderType = "PlatformAdmin",
+                            SenderId = "owner",
+                            SenderName = "Platform Super Admin",
+                            Message = "Thanks for reporting this. We see the device location permissions were revoked on Android 14. I am sending an in-app request for temporary support access to review the branch audit logs.",
+                            CreatedAt = DateTimeOffset.UtcNow.AddHours(-2)
+                        }
+                    }
+                };
+
+                var seedTicket2 = new SupportTicket
+                {
+                    TicketNumber = "TK-107",
+                    TenantId = tenant.Id,
+                    Subject = "Official BIR 2307 receipt request for annual Pro upgrade",
+                    Category = "Billing",
+                    Priority = "Low",
+                    Status = "Resolved",
+                    CreatedAt = DateTimeOffset.UtcNow.AddDays(-1),
+                    ResolvedAt = DateTimeOffset.UtcNow.AddHours(-4),
+                    Messages = new List<SupportTicketMessage>
+                    {
+                        new()
+                        {
+                            SenderType = "TenantOwner",
+                            SenderId = "tenant-owner",
+                            SenderName = "Tenant Owner",
+                            Message = "Please send the official BIR tax receipt for our Pro subscription renewal.",
+                            CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
+                        },
+                        new()
+                        {
+                            SenderType = "PlatformAdmin",
+                            SenderId = "owner",
+                            SenderName = "Platform Super Admin",
+                            Message = "Official receipt #PM-INV-202611-094 has been attached to your portal invoice section.",
+                            AttachmentsJson = "[{\"name\":\"BIR_Receipt_PM_INV.pdf\",\"type\":\"file\",\"size\":\"320 KB\"}]",
+                            CreatedAt = DateTimeOffset.UtcNow.AddHours(-4)
+                        }
+                    }
+                };
+
+                dbContext.SupportTickets.AddRange(seedTicket1, seedTicket2);
+                dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+                {
+                    ActorType = "System",
+                    ActorId = "system",
+                    Action = "support_tickets.initialized",
+                    EntityName = "SupportTicket",
+                    Details = "Demo support tickets seeded with real messages and attachments.",
+                    IpAddress = "127.0.0.1"
+                });
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+
         var tickets = await dbContext.SupportTickets
             .Include(t => t.Tenant)
             .Include(t => t.Messages)
@@ -234,6 +318,7 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
             .Select(t => new SupportTicketSummaryResponse(
                 t.Id,
                 t.TicketNumber,
+                t.TenantId,
                 t.Tenant != null ? t.Tenant.Name : "Unknown Tenant",
                 t.Tenant != null ? t.Tenant.Slug : string.Empty,
                 t.Subject,
@@ -267,6 +352,7 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
         return Ok(new SupportTicketDetailResponse(
             ticket.Id,
             ticket.TicketNumber,
+            ticket.TenantId,
             ticket.Tenant != null ? ticket.Tenant.Name : "Unknown Tenant",
             ticket.Tenant != null ? ticket.Tenant.Slug : string.Empty,
             ticket.Subject,
@@ -309,7 +395,21 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
         };
 
         dbContext.SupportTicketMessages.Add(message);
-        ticket.Status = "WaitingOnTenant";
+        ticket.Status = "Waiting on Tenant";
+
+        dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+        {
+            ActorType = "PlatformAdmin",
+            ActorId = User.FindFirst("sub")?.Value ?? "owner",
+            ActorEmail = User.FindFirst("email")?.Value,
+            TenantId = ticket.TenantId,
+            Action = "support_ticket.replied",
+            EntityName = "SupportTicket",
+            EntityId = ticket.Id.ToString(),
+            Details = $"Replied to ticket #{ticket.TicketNumber}: {(request.Message.Length > 80 ? request.Message[..80] + "..." : request.Message)}",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -322,7 +422,40 @@ public sealed class PlatformController(AppDbContext dbContext) : ControllerBase
             message.CreatedAt));
     }
 
+    [HttpPatch("support/tickets/{id:guid}/resolve")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ResolveTicket(Guid id, CancellationToken cancellationToken)
+    {
+        var ticket = await dbContext.SupportTickets.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        if (ticket is null)
+        {
+            return NotFound();
+        }
+
+        ticket.Status = "Resolved";
+        ticket.ResolvedAt = DateTimeOffset.UtcNow;
+
+        dbContext.PlatformAuditLogs.Add(new PlatformAuditLog
+        {
+            ActorType = "PlatformAdmin",
+            ActorId = User.FindFirst("sub")?.Value ?? "owner",
+            ActorEmail = User.FindFirst("email")?.Value,
+            TenantId = ticket.TenantId,
+            Action = "support_ticket.resolved",
+            EntityName = "SupportTicket",
+            EntityId = ticket.Id.ToString(),
+            Details = $"Ticket #{ticket.TicketNumber} marked as Resolved",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Ok();
+    }
+
     [HttpPost("support/handshake")]
+    [HttpPost("handshake")]
     [ProducesResponseType(typeof(SupportAccessGrantResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SupportAccessGrantResponse>> RequestSupportHandshake(
         [FromBody] RequestSupportHandshakeRequest request,
@@ -409,6 +542,7 @@ public sealed record PlatformAuditLogResponse(
 public sealed record SupportTicketSummaryResponse(
     Guid Id,
     string TicketNumber,
+    Guid TenantId,
     string TenantName,
     string TenantSlug,
     string Subject,
@@ -429,6 +563,7 @@ public sealed record SupportMessageResponse(
 public sealed record SupportTicketDetailResponse(
     Guid Id,
     string TicketNumber,
+    Guid TenantId,
     string TenantName,
     string TenantSlug,
     string Subject,

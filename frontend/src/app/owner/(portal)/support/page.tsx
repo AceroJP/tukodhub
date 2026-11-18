@@ -17,6 +17,7 @@ type Attachment = {
 type TicketSummary = {
   id: string;
   ticketNumber: string;
+  tenantId: string;
   tenantName: string;
   tenantSlug: string;
   subject: string;
@@ -41,6 +42,7 @@ type TicketMessage = {
 type TicketDetail = {
   id: string;
   ticketNumber: string;
+  tenantId: string;
   tenantName: string;
   tenantSlug: string;
   subject: string;
@@ -205,9 +207,9 @@ export default function SupportDeskPage() {
     if (!reason) return;
 
     try {
-      await ownerApiRequest("/api/v1/platform/handshake", {
+      await ownerApiRequest("/api/v1/platform/support/handshake", {
         method: "POST",
-        body: JSON.stringify({ tenantId: detail.id, reason, durationMinutes: 60 }),
+        body: JSON.stringify({ tenantId: detail.tenantId, reason, durationMinutes: 60 }),
       });
       Swal.fire({
         icon: "success",
@@ -217,6 +219,38 @@ export default function SupportDeskPage() {
       });
     } catch {
       Swal.fire({ icon: "error", title: "Failed to send handshake request", toast: true, timer: 3000, position: "top-end", showConfirmButton: false });
+    }
+  }
+
+  // ── Resolve Ticket ──────────────────────────────────────────────────────────
+  async function handleMarkResolved() {
+    if (!selectedId || !detail) return;
+    try {
+      await ownerApiRequest(`/api/v1/platform/support/tickets/${selectedId}/resolve`, {
+        method: "PATCH",
+      });
+      setDetail((prev) => (prev ? { ...prev, status: "Resolved" } : prev));
+      setTickets((prev) =>
+        prev.map((t) => (t.id === selectedId ? { ...t, status: "Resolved" } : t))
+      );
+      Swal.fire({
+        icon: "success",
+        title: "Ticket Resolved",
+        text: `Ticket #${detail.ticketNumber} marked as resolved.`,
+        toast: true,
+        timer: 3000,
+        position: "top-end",
+        showConfirmButton: false,
+      });
+    } catch {
+      Swal.fire({
+        icon: "error",
+        title: "Failed to resolve ticket",
+        toast: true,
+        timer: 3000,
+        position: "top-end",
+        showConfirmButton: false,
+      });
     }
   }
 
@@ -355,9 +389,7 @@ export default function SupportDeskPage() {
                       🔐 Request Access
                     </button>
                     <button
-                      onClick={() =>
-                        Swal.fire({ icon: "info", title: "Mark Resolved", text: "Resolution workflow coming soon.", confirmButtonColor: "#17624d" })
-                      }
+                      onClick={handleMarkResolved}
                       className="rounded-lg border border-[#cbded4] bg-white px-3 py-1.5 text-xs font-semibold text-[#17352d] transition hover:bg-[#f2f6f4]"
                     >
                       ✓ Mark Resolved

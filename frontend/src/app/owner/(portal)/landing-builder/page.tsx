@@ -439,9 +439,14 @@ export default function LandingPageBuilder() {
         <div className="flex flex-col rounded-2xl border border-[#dce9df] bg-white p-5 shadow-xs lg:col-span-7">
           {/* Device Switcher */}
           <div className="flex items-center justify-between border-b border-[#e2ece6] pb-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#657970]">
-              Live Preview
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#657970]">
+                Live Preview
+              </span>
+              <span className="rounded-full bg-[#dbeee2] px-2 py-0.5 text-[10px] font-semibold text-[#17624d]">
+                ↕ Scroll to view full page
+              </span>
+            </div>
             <div className="flex items-center gap-1.5 rounded-lg border border-[#cbded4] bg-[#f7f8f5] p-1 text-xs">
               {(["desktop", "tablet", "mobile"] as const).map((mode) => (
                 <button
@@ -460,82 +465,123 @@ export default function LandingPageBuilder() {
             </div>
           </div>
 
-          {/* Rendered Frame */}
-          <div className="mt-4 flex-1 flex justify-center overflow-x-auto bg-[#eef2ef] p-4 rounded-xl">
+          {/* Rendered Frame with Scrollable Container */}
+          <div className="mt-4 flex-1 flex justify-center bg-[#eef2ef] p-4 rounded-xl overflow-hidden">
             <div
-              className={`rounded-xl border border-[#cbded4] bg-[#f7f8f5] p-6 text-[#17352d] shadow-md transition-all ${
+              className={`rounded-xl border border-[#cbded4] bg-[#f7f8f5] text-[#17352d] shadow-md transition-all max-h-[640px] overflow-y-auto overscroll-contain ${
                 devicePreview === "desktop"
                   ? "w-full max-w-2xl"
                   : devicePreview === "tablet"
                   ? "w-[480px]"
-                  : "w-[320px]"
+                  : "w-[340px]"
               }`}
             >
-              {/* Announcement Bar */}
-              {config.announcement.enabled && (
-                <div className="mb-4 rounded-lg bg-[#dbeee2] px-3 py-1.5 text-[10px] text-[#17624d] flex items-center gap-2">
-                  <span className="rounded bg-[#17624d] px-1.5 py-0.5 font-bold text-white uppercase text-[8px]">
-                    {config.announcement.badge}
-                  </span>
-                  <span className="truncate">{config.announcement.text}</span>
-                </div>
-              )}
-
-              {/* Mini Nav */}
-              <div className="flex items-center justify-between border-b border-[#cbded4]/60 pb-3">
-                <div className="flex items-center gap-2 font-bold text-xs">
-                  <span className="grid h-6 w-6 place-items-center rounded bg-[#17624d] text-[10px] text-white">T</span>
-                  <span>TukodHub</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className="font-semibold text-[#17624d]">{config.hero.ctaSecondaryText}</span>
-                  <span className="rounded-full bg-[#17624d] px-2.5 py-1 font-bold text-white">
-                    {config.hero.ctaPrimaryText}
-                  </span>
-                </div>
-              </div>
-
-              {/* Hero Section */}
-              <div className="py-8 text-center space-y-3">
-                <span className="inline-block rounded-full border border-[#cbded4] bg-white px-3 py-1 text-[9px] font-semibold text-[#b17a25]">
-                  {config.hero.badge}
-                </span>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#17352d] leading-snug">
-                  {config.hero.title}
-                </h1>
-                <p className="text-[11px] text-[#657970] max-w-md mx-auto leading-relaxed">
-                  {config.hero.subtitle}
-                </p>
-                <div className="pt-2 flex justify-center gap-2">
-                  <span className="rounded-full bg-[#17624d] px-4 py-2 text-xs font-bold text-white">
-                    {config.hero.ctaPrimaryText}
-                  </span>
-                  <span className="rounded-full border border-[#cbded4] bg-white px-4 py-2 text-xs font-semibold text-[#17352d]">
-                    How it works
-                  </span>
-                </div>
-              </div>
-
-              {/* Workflow Steps Preview */}
-              <div className="mt-4 border-t border-[#cbded4]/60 pt-4">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[#b17a25] text-center mb-3">
-                  {config.workflow.title}
-                </p>
-                <div className="grid grid-cols-3 gap-2 text-left">
-                  <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
-                    <span className="font-mono text-[9px] font-bold text-[#b17a25]">01</span>
-                    <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step1Title}</p>
-                    <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step1Desc}</p>
+              <div className="p-6 space-y-6">
+                {/* Announcement Bar */}
+                {config.announcement.enabled && (
+                  <div className="rounded-lg bg-[#dbeee2] px-3 py-1.5 text-[10px] text-[#17624d] flex items-center gap-2">
+                    <span className="rounded bg-[#17624d] px-1.5 py-0.5 font-bold text-white uppercase text-[8px]">
+                      {config.announcement.badge}
+                    </span>
+                    <span className="truncate">{config.announcement.text}</span>
                   </div>
-                  <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
-                    <span className="font-mono text-[9px] font-bold text-[#b17a25]">02</span>
-                    <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step2Title}</p>
-                    <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step2Desc}</p>
+                )}
+
+                {/* Mini Nav */}
+                <div className="flex items-center justify-between border-b border-[#cbded4]/60 pb-3">
+                  <div className="flex items-center gap-2 font-bold text-xs">
+                    <span className="grid h-6 w-6 place-items-center rounded bg-[#17624d] text-[10px] text-white">T</span>
+                    <span>TukodHub</span>
                   </div>
-                  <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
-                    <span className="font-mono text-[9px] font-bold text-[#b17a25]">03</span>
-                    <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step3Title}</p>
-                    <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step3Desc}</p>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="font-semibold text-[#17624d]">{config.hero.ctaSecondaryText}</span>
+                    <span className="rounded-full bg-[#17624d] px-2.5 py-1 font-bold text-white">
+                      {config.hero.ctaPrimaryText}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Hero Section */}
+                <div className="py-6 text-center space-y-3">
+                  <span className="inline-block rounded-full border border-[#cbded4] bg-white px-3 py-1 text-[9px] font-semibold text-[#b17a25]">
+                    {config.hero.badge}
+                  </span>
+                  <h1 className="text-xl font-extrabold tracking-tight text-[#17352d] leading-snug">
+                    {config.hero.title}
+                  </h1>
+                  <p className="text-[11px] text-[#657970] max-w-md mx-auto leading-relaxed">
+                    {config.hero.subtitle}
+                  </p>
+                  <div className="pt-2 flex justify-center gap-2">
+                    <span className="rounded-full bg-[#17624d] px-4 py-2 text-xs font-bold text-white">
+                      {config.hero.ctaPrimaryText}
+                    </span>
+                    <span className="rounded-full border border-[#cbded4] bg-white px-4 py-2 text-xs font-semibold text-[#17352d]">
+                      How it works
+                    </span>
+                  </div>
+                </div>
+
+                {/* Workflow Steps Preview */}
+                <div className="border-t border-[#cbded4]/60 pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#b17a25] text-center mb-3">
+                    {config.workflow.title}
+                  </p>
+                  <div className={`grid gap-2 text-left ${devicePreview === "mobile" ? "grid-cols-1" : "grid-cols-3"}`}>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <span className="font-mono text-[9px] font-bold text-[#b17a25]">01</span>
+                      <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step1Title}</p>
+                      <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step1Desc}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <span className="font-mono text-[9px] font-bold text-[#b17a25]">02</span>
+                      <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step2Title}</p>
+                      <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step2Desc}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <span className="font-mono text-[9px] font-bold text-[#b17a25]">03</span>
+                      <p className="font-bold text-[10px] text-[#17352d]">{config.workflow.step3Title}</p>
+                      <p className="text-[8px] text-[#657970] mt-0.5">{config.workflow.step3Desc}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Field Work / Selling Points Preview */}
+                <div className="border-t border-[#cbded4]/60 pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#b17a25] text-center mb-3">
+                    {config.fieldWork.title}
+                  </p>
+                  <div className={`grid gap-2 ${devicePreview === "mobile" ? "grid-cols-1" : "grid-cols-3"}`}>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <p className="text-xs font-bold text-[#17624d]">↗ Actionable</p>
+                      <p className="text-[9px] text-[#657970] mt-1">{config.fieldWork.item1}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <p className="text-xs font-bold text-[#17624d]">◌ Field Proof</p>
+                      <p className="text-[9px] text-[#657970] mt-1">{config.fieldWork.item2}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 border border-[#e2ece6]">
+                      <p className="text-xs font-bold text-[#17624d]">✓ Compliance</p>
+                      <p className="text-[9px] text-[#657970] mt-1">{config.fieldWork.item3}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Preview */}
+                <div className="border-t border-[#cbded4]/60 pt-4 pb-2">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] text-[#71847c]">
+                    <div className="flex items-center gap-1.5 font-bold text-[#17624d]">
+                      <span className="grid h-4 w-4 place-items-center rounded bg-[#17624d] text-[8px] text-white">T</span>
+                      <span>TukodHub</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span>How it works</span>
+                      <span>•</span>
+                      <span>Built for field work</span>
+                      <span>•</span>
+                      <span>Contact</span>
+                    </div>
+                    <p>© 2026 Joenil Acero. All rights reserved.</p>
                   </div>
                 </div>
               </div>

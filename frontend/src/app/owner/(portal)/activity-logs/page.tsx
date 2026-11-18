@@ -17,6 +17,15 @@ type AuditLog = {
   ipAddress?: string;
 };
 
+function actionBadgeColor(action: string) {
+  if (action.includes("suspended")) return "bg-red-50 text-red-700 border-red-200";
+  if (action.includes("reactivated") || action.includes("resolved")) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (action.includes("landing_page")) return "bg-blue-50 text-blue-700 border-blue-200";
+  if (action.includes("handshake")) return "bg-amber-50 text-amber-700 border-amber-200";
+  if (action.includes("ticket")) return "bg-teal-50 text-teal-700 border-teal-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
 export default function ActivityLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -152,11 +161,13 @@ export default function ActivityLogsPage() {
                       {log.timestamp}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-mono text-xs font-bold text-[#17624d]">{log.action}</div>
+                      <span className={`inline-block font-mono text-[11px] font-bold px-2 py-0.5 rounded-md border ${actionBadgeColor(log.action)}`}>
+                        {log.action}
+                      </span>
                       {log.entityName && (
-                        <span className="text-[10px] text-[#8ba097]">
+                        <div className="mt-1 text-[10px] text-[#8ba097]">
                           Entity: <code className="font-semibold">{log.entityName}</code>
-                        </span>
+                        </div>
                       )}
                     </td>
                     <td className="px-6 py-4">
