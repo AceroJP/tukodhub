@@ -1,32 +1,100 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api";
 
-const workflowSteps = [
-  {
-    number: "01",
-    title: "Capture every inquiry",
-    description: "Keep messages, calls, and walk-ins in one dependable queue.",
-  },
-  {
-    number: "02",
-    title: "Schedule with confidence",
-    description: "Turn approved work into clear bookings for your team.",
-  },
-  {
-    number: "03",
-    title: "Finish with proof",
-    description: "Give technicians a simple mobile workflow for every job.",
-  },
-];
+type LandingConfig = {
+  announcement?: {
+    enabled: boolean;
+    text: string;
+    badge: string;
+  };
+  hero?: {
+    badge: string;
+    title: string;
+    subtitle: string;
+    ctaPrimaryText: string;
+    ctaPrimaryLink: string;
+    ctaSecondaryText: string;
+    ctaSecondaryLink: string;
+  };
+  workflow?: {
+    title: string;
+    step1Title: string;
+    step1Desc: string;
+    step2Title: string;
+    step2Desc: string;
+    step3Title: string;
+    step3Desc: string;
+  };
+  fieldWork?: {
+    title: string;
+    item1: string;
+    item2: string;
+    item3: string;
+  };
+};
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [customConfig, setCustomConfig] = useState<LandingConfig | null>(null);
+
+  useEffect(() => {
+    async function loadPublicLandingConfig() {
+      try {
+        const data = await apiRequest<{ key: string; valueJson: string | null }>(
+          "/api/v1/platform/landing-page/public"
+        );
+        if (data.valueJson) {
+          const parsed = JSON.parse(data.valueJson) as LandingConfig;
+          setCustomConfig(parsed);
+        }
+      } catch {
+        // Fall back gracefully to hardcoded static copy
+      }
+    }
+    void loadPublicLandingConfig();
+  }, []);
+
+  const announcement = customConfig?.announcement;
+  const hero = customConfig?.hero;
+  const workflow = customConfig?.workflow;
+  const fieldWork = customConfig?.fieldWork;
+
+  const workflowSteps = [
+    {
+      number: "01",
+      title: workflow?.step1Title ?? "Capture every inquiry",
+      description: workflow?.step1Desc ?? "Keep messages, calls, and walk-ins in one dependable queue.",
+    },
+    {
+      number: "02",
+      title: workflow?.step2Title ?? "Schedule with confidence",
+      description: workflow?.step2Desc ?? "Turn approved work into clear bookings for your team.",
+    },
+    {
+      number: "03",
+      title: workflow?.step3Title ?? "Finish with proof",
+      description: workflow?.step3Desc ?? "Give technicians a simple mobile workflow for every job.",
+    },
+  ];
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#f7f8f5] text-[#17352d]">
       <div className="absolute left-[-10rem] top-[-12rem] h-[28rem] w-[28rem] rounded-full bg-[#dbeee2] blur-3xl" />
       <div className="absolute right-[-14rem] top-[20rem] h-[32rem] w-[32rem] rounded-full bg-[#f3dfb2] blur-3xl" />
+
+      {/* Dynamic Announcement Bar (Configured via Platform Admin Landing Page Builder) */}
+      {announcement?.enabled && (
+        <div className="relative z-10 border-b border-[#cfe3d6] bg-[#17624d] px-4 py-2.5 text-center text-xs text-white">
+          <div className="mx-auto flex max-w-7xl items-center justify-center gap-2">
+            <span className="rounded-full bg-[#e9bd67] px-2 py-0.5 text-[10px] font-bold uppercase text-[#17352d]">
+              {announcement.badge || "Update"}
+            </span>
+            <span className="font-medium">{announcement.text}</span>
+          </div>
+        </div>
+      )}
 
       <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10">
         <a href="#" className="flex items-center gap-3" aria-label="TukodHub home">
@@ -43,11 +111,11 @@ export default function Home() {
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <a className="rounded-full px-5 py-2.5 text-sm font-semibold text-[#17624d] transition hover:bg-white" href="/owner/login">
-            Sign in
+          <a className="rounded-full px-5 py-2.5 text-sm font-semibold text-[#17624d] transition hover:bg-white" href={hero?.ctaSecondaryLink ?? "/owner/login"}>
+            {hero?.ctaSecondaryText ?? "Sign in"}
           </a>
-          <a className="rounded-full bg-[#17624d] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#17624d]/20 transition hover:bg-[#104c3c]" href="/auth/register">
-            Start free
+          <a className="rounded-full bg-[#17624d] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#17624d]/20 transition hover:bg-[#104c3c]" href={hero?.ctaPrimaryLink ?? "/auth/register"}>
+            {hero?.ctaPrimaryText ?? "Start free"}
           </a>
         </div>
 
@@ -78,17 +146,17 @@ export default function Home() {
         <div>
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#cfe3d6] bg-white/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-[#17624d]">
             <span className="h-2 w-2 rounded-full bg-[#e49b3f]" />
-            Built for service businesses
+            {hero?.badge ?? "Built for service businesses"}
           </div>
           <h1 className="max-w-3xl text-5xl font-bold leading-[1.04] tracking-[-0.04em] sm:text-6xl lg:text-7xl">
-            Keep the work moving.
+            {hero?.title ?? "Keep the work moving."}
           </h1>
           <p className="mt-7 max-w-xl text-lg leading-8 text-[#5b7169]">
-            TukodHub brings inquiries, schedules, technicians, and payments into one calm, practical workspace for growing Filipino service teams.
+            {hero?.subtitle ?? "TukodHub brings inquiries, schedules, technicians, and payments into one calm, practical workspace for growing Filipino service teams."}
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <a className="rounded-full bg-[#17624d] px-7 py-4 text-center text-sm font-bold text-white shadow-xl shadow-[#17624d]/20 transition hover:-translate-y-0.5 hover:bg-[#104c3c]" href="/auth/register">
-              Start organizing your work
+            <a className="rounded-full bg-[#17624d] px-7 py-4 text-center text-sm font-bold text-white shadow-xl shadow-[#17624d]/20 transition hover:-translate-y-0.5 hover:bg-[#104c3c]" href={hero?.ctaPrimaryLink ?? "/auth/register"}>
+              {hero?.ctaPrimaryText ?? "Start organizing your work"}
               <span className="ml-3" aria-hidden="true">-&gt;</span>
             </a>
             <a className="rounded-full border border-[#bcd3c7] bg-white/60 px-7 py-4 text-center text-sm font-bold text-[#17624d] transition hover:bg-white" href="#workflow">
@@ -143,7 +211,9 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-6 py-20 lg:px-10">
           <div className="max-w-xl">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#b17a25]">A better daily rhythm</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">From first message to finished job.</h2>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+              {workflow?.title ?? "From first message to finished job."}
+            </h2>
           </div>
           <div className="mt-12 grid gap-8 md:grid-cols-3">
             {workflowSteps.map((step) => (
@@ -160,18 +230,24 @@ export default function Home() {
       <section className="relative mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-2 lg:px-10" id="built-for-work">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#b17a25]">Designed for the real day</p>
-          <h2 className="mt-3 max-w-lg text-3xl font-bold tracking-tight sm:text-4xl">Less chasing. More work completed.</h2>
+          <h2 className="mt-3 max-w-lg text-3xl font-bold tracking-tight sm:text-4xl">
+            {fieldWork?.title ?? "Less chasing. More work completed."}
+          </h2>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="rounded-2xl border border-[#dce9df] bg-white p-5">
             <p className="text-2xl">↗</p>
             <h3 className="mt-6 font-bold">Clear next actions</h3>
-            <p className="mt-2 text-sm leading-6 text-[#657970]">Make follow-ups, schedules, and reviews visible to the right people.</p>
+            <p className="mt-2 text-sm leading-6 text-[#657970]">
+              {fieldWork?.item1 ?? "Make follow-ups, schedules, and reviews visible to the right people."}
+            </p>
           </div>
           <div className="rounded-2xl border border-[#dce9df] bg-white p-5">
             <p className="text-2xl">◌</p>
             <h3 className="mt-6 font-bold">Mobile-ready</h3>
-            <p className="mt-2 text-sm leading-6 text-[#657970]">Give technicians a focused workflow that works where the job happens.</p>
+            <p className="mt-2 text-sm leading-6 text-[#657970]">
+              {fieldWork?.item2 ?? "Give technicians a focused workflow that works where the job happens."}
+            </p>
           </div>
         </div>
       </section>

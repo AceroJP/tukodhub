@@ -1,6 +1,16 @@
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 const configuredApiPort = process.env.NEXT_PUBLIC_API_PORT?.trim();
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export type TenantMembershipSummary = {
   membershipId: string;
   tenantId: string;
@@ -64,10 +74,19 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     credentials: "include",
     headers: mergeHeaders(init.headers),
   });
-
   if (!response.ok) {
-    const problem = (await response.json().catch(() => null)) as { title?: string } | null;
-    throw new Error(problem?.title ?? `API request failed with status ${response.status}.`);
+    const contentType = response.headers.get("content-type") ?? "";
+    let title: string | undefined;
+
+    if (contentType.includes("json")) {
+      const problem = (await response.json().catch(() => null)) as { title?: string } | null;
+      title = problem?.title;
+    } else {
+      const text = await response.text().catch(() => "");
+      title = text.trim() ? text.trim() : undefined;
+    }
+
+    throw new ApiError(response.status, title ?? `API request failed with status ${response.status}.`);
   }
 
   if (response.status === 204) {

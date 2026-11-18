@@ -27,6 +27,11 @@ public sealed class AppDbContext(
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Session> Sessions => Set<Session>();
+    public DbSet<PlatformSetting> PlatformSettings => Set<PlatformSetting>();
+    public DbSet<PlatformAuditLog> PlatformAuditLogs => Set<PlatformAuditLog>();
+    public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
+    public DbSet<SupportTicketMessage> SupportTicketMessages => Set<SupportTicketMessage>();
+    public DbSet<SupportAccessGrant> SupportAccessGrants => Set<SupportAccessGrant>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -140,6 +145,74 @@ public sealed class AppDbContext(
             entity.HasOne(item => item.User).WithMany(item => item.Sessions)
                 .HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(item => item.Tenant).WithMany(item => item.Sessions)
+                .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PlatformSetting>(entity =>
+        {
+            entity.ToTable("platform_settings");
+            entity.HasKey(item => item.Key);
+            entity.Property(item => item.Key).HasMaxLength(150);
+            entity.Property(item => item.ValueJson).IsRequired();
+            entity.Property(item => item.UpdatedAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<PlatformAuditLog>(entity =>
+        {
+            entity.ToTable("platform_audit_logs");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(item => item.ActorType).HasMaxLength(50).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(150).IsRequired();
+            entity.Property(item => item.ActorEmail).HasMaxLength(320);
+            entity.Property(item => item.Action).HasMaxLength(150).IsRequired();
+            entity.Property(item => item.Timestamp).HasDefaultValueSql("now()");
+            entity.HasIndex(item => item.Timestamp);
+            entity.HasIndex(item => item.TenantId);
+        });
+
+        modelBuilder.Entity<SupportTicket>(entity =>
+        {
+            entity.ToTable("support_tickets");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(item => item.TicketNumber).HasMaxLength(50).IsRequired();
+            entity.Property(item => item.Subject).HasMaxLength(250).IsRequired();
+            entity.Property(item => item.Category).HasMaxLength(50).IsRequired();
+            entity.Property(item => item.Priority).HasMaxLength(20).IsRequired();
+            entity.Property(item => item.Status).HasMaxLength(30).IsRequired();
+            entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasIndex(item => item.TicketNumber).IsUnique();
+            entity.HasIndex(item => item.TenantId);
+            entity.HasOne(item => item.Tenant).WithMany()
+                .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SupportTicketMessage>(entity =>
+        {
+            entity.ToTable("support_ticket_messages");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(item => item.SenderType).HasMaxLength(50).IsRequired();
+            entity.Property(item => item.SenderId).HasMaxLength(150).IsRequired();
+            entity.Property(item => item.SenderName).HasMaxLength(200).IsRequired();
+            entity.Property(item => item.Message).IsRequired();
+            entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasOne(item => item.Ticket).WithMany(item => item.Messages)
+                .HasForeignKey(item => item.TicketId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SupportAccessGrant>(entity =>
+        {
+            entity.ToTable("support_access_grants");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(item => item.RequestedByAdminId).HasMaxLength(150).IsRequired();
+            entity.Property(item => item.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(item => item.Status).HasMaxLength(30).IsRequired();
+            entity.Property(item => item.CreatedAt).HasDefaultValueSql("now()");
+            entity.HasIndex(item => item.TenantId);
+            entity.HasOne(item => item.Tenant).WithMany()
                 .HasForeignKey(item => item.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
     }

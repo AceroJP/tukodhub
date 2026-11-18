@@ -20,6 +20,12 @@ public sealed class TenantSessionAuthenticationHandler(
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        var authorization = Request.Headers.Authorization.ToString();
+        if (authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return AuthenticateResult.NoResult();
+        }
+
         if (!Request.Cookies.TryGetValue(SessionCookie, out var sessionToken) || string.IsNullOrWhiteSpace(sessionToken))
         {
             return AuthenticateResult.NoResult();

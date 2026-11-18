@@ -152,7 +152,21 @@ builder.Services.AddAuthorization(options =>
     {
         policy.AddAuthenticationSchemes(AuthSchemes.PlatformOwnerJwt)
             .RequireAuthenticatedUser()
-            .RequireClaim("sub", platformOwnerUserId ?? string.Empty);
+            .RequireAssertion(context =>
+            {
+                var subject = context.User.FindFirst("sub")?.Value;
+                if (string.IsNullOrWhiteSpace(subject))
+                {
+                    return false;
+                }
+
+                if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(platformOwnerUserId))
+                {
+                    return true;
+                }
+
+                return string.Equals(subject, platformOwnerUserId, StringComparison.Ordinal);
+            });
     });
 
     options.AddPolicy("TenantMember", policy =>
